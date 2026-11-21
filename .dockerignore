@@ -1,5 +1,9 @@
 .git
 .venv
+node_modules
+**/node_modules
+frontend/dist
+frontend/static/app
 __pycache__
 *.pyc
 db.sqlite3

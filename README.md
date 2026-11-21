@@ -1,316 +1,223 @@
-# AgroQuiriquina — Backend (Django + DRF)
+# AgroQuiriquina
 
-API REST para la gestión de inventario, ventas, finanzas, contactos y RRHH de AgroQuiriquina,
-pensada para una app móvil Android que trabaja **offline** y sincroniza al recuperar conexión.
+**Gestión agrícola y comercial, desde la venta en terreno hasta el control de gestión.**
 
-- **Python** 3.10+ (recomendado 3.11 o 3.12) · **Django** 5.0/5.1 · **DRF** 3.15
-- **Auth:** JWT (SimpleJWT) con RBAC por rol: `ADMIN`, `VENDEDOR`, `SUPERVISOR`
-- **BD:** SQLite por defecto (prototipo) · PostgreSQL opcional
-- **Herencia Multi-table:** `Persona → Cliente / Proveedor / Trabajador` e `ItemBodega → ProductoVenta / InsumoAgricola`
+AgroQuiriquina es una aplicación web instalable (PWA) para centralizar operaciones de venta, clientes, inventario, trabajo en terreno, finanzas y remuneraciones. Está diseñada para equipos que pueden tener conectividad intermitente: permite registrar algunas operaciones sin conexión y sincronizarlas con el servidor cuando la red vuelve a estar disponible.
 
----
-Usuario	Contraseña
-admin	Cambiar123!
-gerente	Cambiar123!
-vendedor1	Cambiar123!
-vendedor2	Cambiar123!
-supervisor1	Cambiar123!
-supervisor2	Cambiar123!
+> **Estado del producto:** prototipo funcional. Antes de usarlo con información real o exponerlo a Internet, revise las recomendaciones de seguridad y operación de este documento.
 
-## 1. Requisitos previos
+## Resumen ejecutivo
 
-| Herramienta | Verificar con | Descarga |
-|---|---|---|
-| Python 3.10+ | `python --version` (Windows) · `python3 --version` (Mac/Linux) | https://www.python.org/downloads/ |
-| VS Code | — | https://code.visualstudio.com/ |
-| Extensión *Python* de VS Code | — | se instala desde VS Code (ver paso 2) |
+| Dimensión | Descripción |
+|---|---|
+| Usuarios | Administración, vendedores y supervisores de terreno |
+| Aplicación | Interfaz web adaptable e instalable como PWA |
+| Operación offline | Ventas, clientes nuevos y registros de desempeño quedan en cola local para sincronizarse después |
+| API | API REST versionada, autenticada con JWT y protegida por roles |
+| Datos | SQLite para desarrollo; PostgreSQL en el despliegue Docker incluido |
+| Tecnologías | Django 5, Django REST Framework, React 18, TypeScript y Vite |
 
-> **Windows:** al instalar Python marca la casilla **“Add python.exe to PATH”**.
+## Flujos principales
 
----
+### Venta y despacho
 
-## 2. Abrir el proyecto en VS Code
+1. El vendedor consulta el catálogo y selecciona o registra un cliente.
+2. Registra los productos, cantidades, pagos y, cuando corresponda, información del despacho.
+3. Si está sin conexión, la venta y el cliente nuevo se guardan en la cola del dispositivo. Al volver la conexión, se envían a la API.
+4. El servidor valida y guarda la venta, registra los movimientos de inventario y los pagos y crea el despacho informado.
+5. Si el stock no alcanza para una venta ya realizada en terreno, la venta se conserva, el stock disponible se descuenta y queda marcada para revisión administrativa.
 
-1. Descomprime `agroquiriquina.zip`.
-2. VS Code → **File → Open Folder…** → selecciona la carpeta `agroquiriquina` (la que contiene `manage.py`).
-3. VS Code te sugerirá instalar las extensiones recomendadas (Python, Pylance, Django, REST Client). Acepta.
-4. Abre la terminal integrada: **Terminal → New Terminal** (`` Ctrl+` ``).
+### Trabajo en terreno
 
----
+El supervisor consulta la información disponible para su rol y registra desempeños diarios. Los registros pueden quedar pendientes en el dispositivo y se envían por lotes al recuperar conexión.
 
-## 3. Instalación (paso a paso)
+### Administración y control
 
-### 3.1 Crear y activar el entorno virtual
+La administración gestiona el acceso y los datos maestros, y consulta finanzas, cuentas por cobrar, rentabilidad e información de remuneraciones. Estos módulos requieren conexión con el servidor; el acceso a la API se valida independientemente del menú que muestre la interfaz.
 
-**Windows (PowerShell):**
+### Sincronización
+
+```mermaid
+flowchart LR
+    A[App web / PWA] -->|Con conexión| B[API Django]
+    A -->|Sin conexión: cola local| A
+    A -->|Al reconectar, cada 60 s o manualmente| C[API de sincronización]
+    C --> B
+    B -->|Catálogo actualizado| A
+```
+
+La app envía lotes de hasta 500 registros. Cada registro se procesa de forma independiente y utiliza un UUID para evitar duplicados cuando se reintenta un envío. La sincronización también descarga cambios del catálogo; el servidor conserva los borrados lógicos para propagar esas bajas.
+
+## Módulos y permisos
+
+| Módulo | Administración | Vendedor | Supervisor |
+|---|:---:|:---:|:---:|
+| Inicio y estado de sincronización | Sí | Sí | Sí |
+| Ventas y despachos | Sí | Sí; ve sus ventas | — |
+| Clientes | Sí | Sí | — |
+| Bodega e inventario | Sí | Consulta según permisos del recurso | Consulta según permisos del recurso |
+| Terreno y equipo | Sí | — | Sí |
+| Finanzas y nómina | Sí | — | — |
+| Usuarios | Sí | — | — |
+
+Los roles se aplican también en el backend. La visibilidad del menú no sustituye la autorización de la API. Los permisos específicos pueden variar entre lectura y escritura.
+
+## Puesta en marcha local
+
+### Requisitos
+
+- Python 3.10 o superior
+- Node.js 20.19 o superior y npm
+- Git (opcional, para clonar el repositorio)
+
+### Instalar y preparar la base
+
+Desde la raíz del proyecto:
+
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-> Si PowerShell bloquea el script (“la ejecución de scripts está deshabilitada”), ejecuta una vez:
-> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` y repite la activación.
-> Alternativa sin cambiar nada: usa **CMD** con `.venv\Scripts\activate.bat`.
-
-**macOS / Linux:**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Verás `(.venv)` al inicio de la línea de la terminal. VS Code normalmente detecta el entorno solo; si no,
-pulsa `Ctrl+Shift+P` → **Python: Select Interpreter** → elige el que dice `.venv`.
-
-### 3.2 Instalar dependencias
-```bash
+.\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-### 3.3 Variables de entorno (opcional en desarrollo)
-```bash
-# Windows:      copy .env.example .env
-# Mac / Linux:  cp .env.example .env
-```
-Sin `.env` el proyecto funciona igual con valores de desarrollo (SQLite, `DEBUG=True`).
-
-### 3.4 Crear las tablas
-
-> ⚠️ El proyecto **no incluye archivos de migración**: se generan en tu máquina con tu versión de Django.
-> Es necesario hacerlo **antes** de `migrate` (el modelo de usuario es personalizado).
-
-```bash
-python manage.py makemigrations users inventory sales hr
 python manage.py migrate
-```
-
-### 3.5 Cargar datos de ejemplo
-```bash
 python manage.py seed_demo
 ```
-Crea usuarios de prueba para cada rol, productos, insumos, clientes, un proveedor y trabajadores.
-El comando es **idempotente** (puedes repetirlo sin duplicar datos).
 
-#### 👤 Usuarios de prueba
+En macOS o Linux, cree el entorno con `python3 -m venv .venv` y actívelo con `source .venv/bin/activate`. Si PowerShell bloquea la activación en Windows, use CMD (`.venv\Scripts\activate.bat`) o ajuste la política de ejecución de su usuario.
 
-Clave de **todos** los usuarios: `Cambiar123!`
+El repositorio incluye migraciones; no es necesario generarlas para una instalación normal. `seed_demo` crea usuarios y datos de prueba, y puede ejecutarse más de una vez. Para personalizar la contraseña de las cuentas demo:
 
-| Usuario | Rol | Qué sirve para probar |
-|---|---|---|
-| `admin` | Administrador (superusuario) | Todo, incluido el panel `/admin/`, nómina y finanzas |
-| `gerente` | Administrador (no superusuario) | Rol `ADMIN` sin acceso a `/admin/`; mismo acceso a la API que `admin` |
-| `vendedor1` | Vendedor (María González) | Clientes, ventas, pagos, despachos, catálogo y subida masiva de ventas |
-| `vendedor2` | Vendedor (Pedro Soto) | Aislamiento: no ve las ventas de `vendedor1` |
-| `supervisor1` | Supervisor de Terreno (Carlos Muñoz) | Trabajadores, desempeño diario, subida masiva de desempeños. Vinculado a un `Trabajador` |
-| `supervisor2` | Supervisor de Terreno (Ana Rojas) | Igual que `supervisor1`, segunda cuenta |
-| `inactivo` | Vendedor desactivado | El login debe devolver `401` |
-
-Opciones del comando:
 ```bash
-python manage.py seed_demo --password "OtraClave123"   # usar otra clave
-python manage.py seed_demo --reset                      # restablecer clave/rol/estado si los usuarios ya existen
+python manage.py seed_demo --password "UnaClaveLocalSegura"
 ```
 
-Matriz rápida de permisos (probada en `apps/users/tests.py`):
+El comando solo cambia las credenciales de las cuentas que crea o cuando se utiliza `--reset`. **Las cuentas y contraseñas demo son exclusivamente para desarrollo:** no las habilite en producción.
 
-| Endpoint | admin / gerente | vendedor | supervisor |
-|---|:---:|:---:|:---:|
-| `clientes/` | ✅ | ✅ | ❌ 403 |
-| `trabajadores/` | ✅ | ❌ 403 | ✅ |
-| `finanzas/cuentas-por-cobrar/` | ✅ | ❌ 403 | ❌ 403 |
-| `remuneraciones/` | ✅ | ❌ 403 | ❌ 403 |
-| `usuarios/` | ✅ | ❌ 403 | ❌ 403 |
+### Explorar la aplicación con cuentas demo
 
-> ⚠️ Son credenciales **solo para el prototipo**. Antes de usar datos reales, cambia las claves o borra estos usuarios
-> (`python manage.py shell` → `User.objects.filter(username__in=[...]).delete()`).
+Las cuentas de demostración usan `Cambiar123!` como contraseña inicial. Inicie sesión localmente con el perfil que corresponda:
 
-Si prefieres tu propio administrador: `python manage.py createsuperuser` (luego entra a `/admin/` y asígnale rol *Administrador*).
+| Usuario | Qué explorar |
+|---|---|
+| `admin` | Todos los módulos: ventas, movimientos, finanzas, nómina, equipo y usuarios |
+| `vendedor1` | Ventas pagadas, con abono y a crédito; despachos; datos propios |
+| `vendedor2` | Una venta propia para comprobar que los vendedores no ven las ventas de otros |
+| `supervisor1` | Trabajadores, registros de terreno e insumos agrícolas |
 
-### 3.6 Levantar el servidor
+La carga incluye clientes y contactos con datos completos, catálogo con un producto bajo el mínimo, movimientos de entrada/salida/ajuste, cuatro ventas, los cuatro estados de despacho y remuneraciones en borrador, aprobadas y pagadas. Una venta de demostración queda marcada para revisión por diferencia de stock. Al abrir la app o pulsar **Sincronizar ahora**, se descarga el catálogo correspondiente al rol.
+
+Estas credenciales son públicas y débiles a propósito para facilitar pruebas locales: cambie la contraseña o elimine las cuentas demo antes de exponer la aplicación.
+
+### Ejecutar backend y frontend
+
+En una terminal, inicie Django:
+
 ```bash
 python manage.py runserver
 ```
-Abre:
-- Health check: http://127.0.0.1:8000/api/v1/health/ → `{"status": "ok"}`
-- Panel de administración: http://127.0.0.1:8000/admin/
-- Para probar desde un celular/emulador en la misma red: `python manage.py runserver 0.0.0.0:8000`
-  (en el emulador Android la PC es `http://10.0.2.2:8000`).
 
-**Desde VS Code:** pestaña *Run and Debug* (`Ctrl+Shift+D`) → **Django: runserver** → ▶ (permite poner *breakpoints*).
+En otra terminal, ejecute Vite:
 
-### 3.7 Ejecutar los tests
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Abra la URL local que informa Vite. El servidor de desarrollo reenvía las peticiones `/api/` a Django en `127.0.0.1:8000`.
+
+Para servir la interfaz compilada desde Django, compile primero el frontend y luego inicie el backend:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+python manage.py runserver
+```
+
+La aplicación compilada queda en la raíz del servidor Django. El endpoint de salud está disponible en `/api/v1/health/`.
+
+## Despliegue con Docker
+
+Docker Compose levanta PostgreSQL y la aplicación web; el build incluye la compilación del frontend.
+
+1. Copie `.env.docker.example` como `.env`.
+2. Defina valores seguros para `DJANGO_SECRET_KEY` y `DB_PASSWORD`, y ajuste hosts y orígenes permitidos para su entorno.
+3. Inicie los servicios:
+
+```bash
+docker compose up --build
+```
+
+4. Para cargar datos de demostración en una instalación local:
+
+```bash
+docker compose exec web python manage.py seed_demo
+```
+
+La aplicación queda disponible en `http://localhost:8000`. Los datos de PostgreSQL se conservan en el volumen `pgdata`. No use cuentas demo en un entorno accesible públicamente.
+
+## API REST
+
+La API tiene prefijo `/api/v1/`. Los recursos requieren autenticación salvo que se indique lo contrario.
+
+| Área | Rutas principales |
+|---|---|
+| Estado y autenticación | `GET /health/` (público), `POST /auth/token/`, `POST /auth/token/refresh/`, `GET /me/` |
+| Personas y acceso | `/usuarios/`, `/clientes/`, `/proveedores/`, `/trabajadores/` |
+| Inventario | `/productos/`, `/insumos/`, `/movimientos/` |
+| Operación comercial | `/ventas/`, `/pagos/`, `/despachos/` |
+| Gestión | `/finanzas/cuentas-por-cobrar/`, `/finanzas/rentabilidad/`, `/desempenos/`, `/remuneraciones/` |
+| Sincronización | `POST /sync/ventas/bulk/`, `POST /sync/clientes/bulk/`, `POST /sync/desempenos/bulk/`, `GET /sync/catalogo/` |
+
+En la raíz del proyecto, `api_examples.http` contiene peticiones para probar con la extensión REST Client de VS Code. La documentación interactiva OpenAPI está en `/api/docs/` y el esquema en `/api/schema/`; en desarrollo está habilitada para consulta, mientras que en producción requiere un usuario administrador del sitio.
+
+Las rutas de sincronización aceptan una lista JSON o un objeto con la clave del recurso, con un máximo de 500 registros. La respuesta incluye el resultado individual de cada elemento: `created`, `duplicate` o `error`. Si hay errores parciales, la API responde `207 Multi-Status`; los elementos correctos no requieren reenviar todo el lote.
+
+## Operación sin conexión y límites
+
+- El primer inicio de sesión requiere conexión. La renovación de credenciales y los módulos de finanzas y nómina también requieren conexión.
+- Se guardan localmente los datos pendientes de clientes, ventas y desempeños, además de información de catálogo para consulta. La sincronización se intenta al recuperar conectividad, periódicamente (cada 60 segundos) y desde el control de estado de la aplicación.
+- El almacenamiento local usa `localStorage` del navegador y **no está cifrado**. No es adecuado para dispositivos compartidos o información sensible sin controles adicionales.
+- Para instalar la PWA en un dispositivo móvil se necesita HTTPS o `localhost`. En una red local, ejecute Django con `python manage.py runserver 0.0.0.0:8000` y abra la dirección de la computadora desde el dispositivo; la instalación PWA requiere además HTTPS.
+- La sincronización evita duplicados mediante UUID, pero los conflictos de edición entre dispositivos y una resolución avanzada de conflictos no forman parte del alcance actual.
+
+## Calidad y mantenimiento
+
+Ejecute las pruebas del backend y las verificaciones del frontend antes de integrar cambios:
+
 ```bash
 python manage.py test
 ```
-(o la configuración **Django: tests** del panel *Run and Debug*).
-
----
-
-## 4. Aplicación web (prototipo)
-
-Con el servidor corriendo, abre **http://127.0.0.1:8000/** e ingresa con cualquiera de los usuarios de la sección 3.5 (p. ej. `vendedor1`, `supervisor1` o `admin`; clave `Cambiar123!`).
-Es una app web instalable (PWA) en `frontend/`, sin pasos de compilación: se edita `frontend/index.html` y se recarga.
-
-| Rol | Menú que ve |
-|---|---|
-| Vendedor | Inicio · Ventas (nueva venta) · Clientes · Bodega |
-| Supervisor | Inicio · Bodega (con calculadora de insumos por hectárea) · Terreno (registrar trabajo diario) |
-| Administrador | Todo, más Finanzas (por cobrar y resumen del mes) y Nómina (calcular, aprobar y pagar) |
-
-**Cómo funciona offline:** ventas, clientes nuevos y registros de terreno se guardan en el teléfono (`localStorage`) y se envían por lotes a
-`/api/v1/sync/*/bulk/` cuando hay conexión (automático al reconectar, cada 60 s y con el botón 🔄). El catálogo se descarga al sincronizar.
-Los registros con error se muestran en *Inicio* y se pueden descartar.
-
-**Probarlo sin internet:** inicia sesión con conexión, abre las herramientas de desarrollo del navegador → *Network* → *Offline*, y crea una venta.
-Verás “por enviar”. Al volver a *Online* se envía sola.
-
-**Desde el celular:** `python manage.py runserver 0.0.0.0:8000` y abre `http://<IP-de-tu-PC>:8000/`. Instalar como app y abrir sin conexión
-requiere **HTTPS** (o `localhost`); sin HTTPS funciona como página web normal con guardado local de datos.
-
-**Limitaciones del prototipo:** el primer inicio de sesión necesita conexión; Finanzas y Nómina son solo en línea; no hay pantallas
-para despachos ni abonos a deudas (la API sí los tiene); los datos locales no están cifrados.
-
----
-
-## 5. Probar la API
-
-### Con VS Code (recomendado)
-Abre `api_examples.http` (extensión *REST Client*) y pulsa **Send Request** en cada bloque.
-
-### Con curl
-```bash
-# 1) Obtener token
-curl -X POST http://127.0.0.1:8000/api/v1/auth/token/ \
-  -H "Content-Type: application/json" \
-  -d '{"username":"vendedor1","password":"Cambiar123!"}'
-
-# 2) Usar el token
-curl http://127.0.0.1:8000/api/v1/sync/catalogo/ -H "Authorization: Bearer <ACCESS_TOKEN>"
-```
-> En PowerShell usa `curl.exe` (no el alias `curl`) o prefiere el archivo `.http`.
-
-### Endpoints principales (`/api/v1/`)
-
-| Recurso | Endpoint | Roles (además de ADMIN) |
-|---|---|---|
-| Auth | `POST auth/token/` · `POST auth/token/refresh/` · `GET me/` | todos |
-| Usuarios | `usuarios/` | solo ADMIN |
-| Clientes | `clientes/` | VENDEDOR |
-| Proveedores | `proveedores/` | lectura VENDEDOR |
-| Trabajadores | `trabajadores/` | SUPERVISOR |
-| Productos | `productos/` · `POST productos/<id>/movimiento/` | lectura VENDEDOR/SUPERVISOR; escribe ADMIN |
-| Insumos | `insumos/` · `GET insumos/<id>/requerimiento/?hectareas=10` | lectura SUPERVISOR; escribe ADMIN |
-| Movimientos de stock | `movimientos/` (solo lectura) | SUPERVISOR |
-| Ventas | `ventas/` · `POST ventas/<id>/anular/` | VENDEDOR (ve solo las suyas) |
-| Pagos / Despachos | `pagos/` · `despachos/` | VENDEDOR |
-| Finanzas | `finanzas/cuentas-por-cobrar/` · `finanzas/rentabilidad/?desde=&hasta=` | solo ADMIN |
-| Desempeño | `desempenos/` | SUPERVISOR |
-| Remuneraciones | `remuneraciones/` · `POST …/<id>/calcular/ aprobar/ pagar/` | solo ADMIN |
-| **Sync masivo** | `POST sync/ventas/bulk/` · `sync/desempenos/bulk/` · `sync/clientes/bulk/` | VENDEDOR / SUPERVISOR / VENDEDOR |
-| **Sync catálogo** | `GET sync/catalogo/?updated_since=<ISO8601>` | según rol |
-
-Todos los listados aceptan `?search=`, `?ordering=`, filtros por campo y paginación `?limit=&offset=`.
-
----
-
-## 5. Cómo funciona la sincronización offline
-
-1. **UUID desde el cliente:** la app Android genera el `id` (UUID v4) de cada venta/desempeño/cliente. Reenviar el mismo lote **nunca duplica**.
-2. **Subida masiva** (`POST /sync/ventas/bulk/`): hasta **500** registros por lote, como lista JSON o `{"ventas": [...]}`.
-   Cada ítem se procesa en su propia transacción; uno inválido no bloquea a los demás. Respuesta:
-   ```json
-   {
-     "resumen": {"recibidos": 3, "creados": 2, "duplicados": 0, "errores": 1},
-     "resultados": [
-       {"index": 0, "id": "…", "status": "created"},
-       {"index": 1, "id": "…", "status": "duplicate"},
-       {"index": 2, "id": "…", "status": "error", "errors": {"detalles": ["…"]}}
-     ],
-     "server_time": "2026-01-15T14:02:11Z"
-   }
-   ```
-   HTTP `200` si todo salió bien, `207` si hubo algún error. La app marca como sincronizados los `created` y `duplicate`.
-3. **Stock:** al sincronizar una venta se descuenta stock y se registra un `MovimientoStock`. Si el stock no alcanza, la venta **no se rechaza**
-   (ya ocurrió físicamente): se descuenta lo disponible y queda `requiere_revision = true` para que el administrador la revise
-   (`GET /ventas/?requiere_revision=true`).
-4. **Descarga incremental:** `GET /sync/catalogo/?updated_since=<server_time anterior>` entrega clientes/productos (o trabajadores) modificados,
-   **incluidos los borrados lógicos** (`is_deleted: true`). Guarda el `server_time` de la respuesta para la siguiente llamada.
-   Si pasas la fecha en la URL, codifica el `+` del huso horario como `%2B`.
-5. **Borrado lógico:** `DELETE` marca `is_deleted=true`; no elimina filas.
-
----
-
-## 6. Estructura del proyecto
-
-```
-agroquiriquina/
-├── manage.py
-├── requirements.txt
-├── .env.example
-├── api_examples.http          # peticiones de ejemplo (REST Client)
-├── .vscode/                   # launch.json, settings.json, extensions.json
-├── config/
-│   ├── settings/ (base.py, dev.py, prod.py)
-│   ├── urls.py · wsgi.py · asgi.py
-└── apps/
-    ├── core/        # SyncModel (UUID + sync), validador de RUT, permisos RBAC, utilidades
-    ├── users/       # User (rol), Persona → Cliente/Proveedor/Trabajador, comando seed_demo
-    ├── inventory/   # ItemBodega → ProductoVenta/InsumoAgricola, MovimientoStock, servicio de stock
-    ├── sales/       # Venta, DetalleVenta, Pago, Despacho, finanzas (por cobrar, rentabilidad)
-    ├── hr/          # Desempeno, Remuneracion (cálculo de nómina)
-    └── sync/        # Endpoints de carga masiva y catálogo offline
-```
-
----
-
-## 7. PostgreSQL (opcional)
 
 ```bash
-pip install "psycopg[binary]"
+cd frontend
+npm run type-check
+npm run build
 ```
-En `.env`:
+
+Para desarrollo, SQLite se configura por defecto. El despliegue Docker usa PostgreSQL. Mantenga las migraciones versionadas junto con los cambios de modelo y aplique `python manage.py migrate` en cada entorno antes de poner una nueva versión en servicio.
+
+## Estructura del repositorio
+
+```text
+apps/
+  core/       Modelos compartidos, validación y permisos
+  users/      Usuarios, roles, clientes, proveedores y trabajadores
+  inventory/  Productos, insumos, stock y movimientos
+  sales/      Ventas, pagos, despachos y finanzas
+  hr/         Desempeños y remuneraciones
+  sync/       Carga masiva y descarga incremental de catálogo
+config/       URLs y configuración Django (desarrollo / producción)
+docker/       Inicialización del contenedor
+frontend/     PWA React, TypeScript y Vite
 ```
-DB_ENGINE=postgres
-DB_NAME=agroquiriquina
-DB_USER=postgres
-DB_PASSWORD=tu_clave
-DB_HOST=localhost
-DB_PORT=5432
-```
-Crea la base (`createdb agroquiriquina`) y repite `makemigrations` (si cambiaste de motor, borra antes la carpeta de migraciones generadas
-excepto `__init__.py`) y `migrate`.
 
-## 8. Producción (resumen)
+## Recomendaciones antes de producción
 
-- `DJANGO_SETTINGS_MODULE=config.settings.prod`, con `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS` definidos.
-- `pip install gunicorn` y `gunicorn config.wsgi`, detrás de Nginx con HTTPS.
-- `python manage.py collectstatic`.
-
-## 9. Problemas frecuentes
-
-| Síntoma | Solución |
-|---|---|
-| `ModuleNotFoundError: No module named 'django'` | El entorno virtual no está activo o faltó `pip install -r requirements.txt`. |
-| `Dependency on app with no migrations: users` / `no such table: users_user` | Ejecuta `python manage.py makemigrations users inventory sales hr` **antes** de `migrate`. |
-| `InconsistentMigrationHistory … admin.0001 … users.0001` | Borra `db.sqlite3` y las migraciones generadas (no `__init__.py`), y repite el paso 3.4. |
-| PowerShell no deja activar el venv | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, o usa CMD. |
-| VS Code subraya imports en rojo | `Ctrl+Shift+P` → *Python: Select Interpreter* → elige `.venv`. |
-| `401 Unauthorized` | Falta `Authorization: Bearer <token>` o el token venció (usa `auth/token/refresh/`). |
-| `403` en un endpoint | El rol del usuario no tiene permiso (ver tabla de endpoints). |
-| Puerto 8000 ocupado | `python manage.py runserver 8001`. |
-
-## 10. Siguientes pasos sugeridos
-Resolución de conflictos de edición (no solo creación) en la sincronización, reportes de rentabilidad con costo de insumos y compras,
-exportación de nómina a PDF/Excel, documentación OpenAPI (`drf-spectacular`) y despliegue con Docker.
-
-## 11. Fase 3: documentación, exportación y Docker
-
-- **OpenAPI/Swagger:** `GET /api/docs/` (UI) y `/api/schema/` (esquema). Abierto en desarrollo (`config.settings.dev`); en producción solo usuarios `is_staff`.
-- **Nómina a Excel:** `GET /api/v1/remuneraciones/exportar/` (solo ADMIN, mismos filtros que el listado) devuelve CSV con `;` y BOM UTF-8. Botón “Exportar CSV” en la pantalla Nómina.
-- **Docker + PostgreSQL:**
-  ```bash
-  cp .env.docker.example .env      # edita DJANGO_SECRET_KEY y DB_PASSWORD
-  docker compose up --build
-  docker compose exec web python manage.py seed_demo
-  ```
-  La app queda en http://localhost:8000/. Con HTTPS real: `SECURE_SSL_REDIRECT=True` y orígenes `https://...` en `.env`.
-- Recomendado: versiona las migraciones generadas (`apps/*/migrations/0*.py`) antes de desplegar.
+- Configure una clave secreta única y fuerte; no reutilice valores de ejemplo ni comparta el archivo `.env`.
+- Use HTTPS detrás de un proxy correctamente configurado y active `SECURE_SSL_REDIRECT`; configure `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS` y `CSRF_TRUSTED_ORIGINS` con los dominios reales.
+- No despliegue usuarios ni datos de demostración. Defina cuentas nominales, contraseñas robustas y permisos mínimos.
+- Establezca copias de seguridad verificables para PostgreSQL y un procedimiento de restauración.
+- Evalúe el cifrado y la política de retención de datos locales antes de operar desde dispositivos móviles compartidos.
