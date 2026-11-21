@@ -1,64 +1,68 @@
-const VER = 'aq-v3';
-const CDN = 'https://cdn.jsdelivr.net';
+const VERSION = 'aq-v4';
+const APP_PATH = '/static/app/';
 const SHELL = [
   '/',
   '/manifest.json',
-  '/static/css/style.css',
   '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png',
   '/static/icons/logo.png',
-  CDN + '/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css'
 ];
 
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(VER)
-      .then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {}))))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(VERSION);
+    await Promise.all(SHELL.map(url => cache.add(new Request(url, { cache: 'reload' })).catch(() => undefined)));
+    const response = await fetch('/', { cache: 'reload' }).catch(() => null);
+    if (response?.ok) {
+      const html = await response.clone().text();
+      const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => new URL(match[1], self.location.origin).href);
+      await Promise.all(assets.map(url => cache.add(new Request(url, { cache: 'reload' })).catch(() => undefined)));
+      await cache.put('/', response);
+    }
+    await self.skipWaiting();
+  })());
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(ks => Promise.all(ks.filter(k => k !== VER).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key.startsWith('aq-') && key !== VERSION).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener('fetch', e => {
-  const r = e.request;
-  if (r.method !== 'GET') return;
-  const u = new URL(r.url);
-  const mismo = u.origin === location.origin;
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  const sameOrigin = url.origin === self.location.origin;
 
-  // API, admin y el propio SW: directo a la red, sin cachear
-  if (mismo && (u.pathname.startsWith('/api/') || u.pathname.startsWith('/admin/') || u.pathname === '/sw.js')) return;
+  if (sameOrigin && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin/') || url.pathname === '/sw.js')) return;
 
-  // Navegación HTML: Network-First con fallback a "/" cacheado
-  if (r.mode === 'navigate') {
-    e.respondWith(
-      fetch(r).then(res => {
-        if (res.ok && mismo && u.pathname === '/') {
-          const cp = res.clone();
-          caches.open(VER).then(c => c.put('/', cp));
-        }
-        return res;
-      }).catch(() => caches.match('/').then(x => x || Response.error()))
-    );
+  if (request.mode === 'navigate') {
+    event.respondWith(fetch(request).then(response => {
+      if (response.ok && sameOrigin && url.pathname === '/') {
+        const copy = response.clone();
+        void caches.open(VERSION).then(cache => cache.put('/', copy));
+      }
+      return response;
+    }).catch(async () => (await caches.match('/')) ?? Response.error()));
     return;
   }
 
-  // Estáticos (propios, manifest, Bootstrap Icons CSS/fuentes): Stale-While-Revalidate
-  if ((mismo && (u.pathname.startsWith('/static/') || u.pathname === '/manifest.json')) || u.origin === CDN) {
-    e.respondWith((async () => {
-      const c = await caches.open(VER);
-      const hit = await c.match(r);
-      const net = fetch(r).then(res => {
-        if (res && (res.ok || res.type === 'opaque')) c.put(r, res.clone());
-        return res;
+  if (sameOrigin && (url.pathname.startsWith('/static/') || url.pathname === '/manifest.json')) {
+    event.respondWith((async () => {
+      const cache = await caches.open(VERSION);
+      const cached = await cache.match(request);
+      const network = fetch(request).then(response => {
+        if (response.ok) void cache.put(request, response.clone());
+        return response;
       }).catch(() => null);
-      if (hit) { e.waitUntil(net); return hit; }
-      return (await net) || Response.error();
+      if (cached) {
+        event.waitUntil(network.then(() => undefined));
+        return cached;
+      }
+      return (await network) ?? Response.error();
     })());
   }
 });
