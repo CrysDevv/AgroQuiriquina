@@ -1,5 +1,10 @@
+
 from django.core.management import call_command
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase  # pyright: ignore[reportMissingImports]
+
+from apps.hr.models import Desempeno, Remuneracion
+from apps.inventory.models import MovimientoStock
+from apps.sales.models import Despacho, Venta
 
 from .models import Trabajador, User
 
@@ -64,6 +69,28 @@ class UsuariosDemoTests(APITestCase):
     def test_seed_es_idempotente_y_reset_restablece_clave(self):
         call_command("seed_demo", verbosity=0)
         self.assertEqual(User.objects.filter(username="admin").count(), 1)
+        conteos_demo = (
+            Venta.objects.count(),
+            Despacho.objects.count(),
+            MovimientoStock.objects.count(),
+            Desempeno.objects.count(),
+            Remuneracion.objects.count(),
+        )
+        self.assertEqual(conteos_demo, (4, 4, 7, 3, 3))
+        self.assertTrue(Venta.objects.filter(requiere_revision=True).exists())
+        self.assertSetEqual(
+            set(Remuneracion.objects.values_list("estado", flat=True)),
+            {Remuneracion.Estado.BORRADOR, Remuneracion.Estado.APROBADA,
+             Remuneracion.Estado.PAGADA},
+        )
+        call_command("seed_demo", verbosity=0)
+        self.assertEqual(conteos_demo, (
+            Venta.objects.count(),
+            Despacho.objects.count(),
+            MovimientoStock.objects.count(),
+            Desempeno.objects.count(),
+            Remuneracion.objects.count(),
+        ))
         u = User.objects.get(username="vendedor1")
         u.set_password("otra-clave-123")
         u.save()

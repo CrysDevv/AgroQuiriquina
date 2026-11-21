@@ -16,13 +16,16 @@ def health(request):
     return Response({"status": "ok"})
 
 
-def front(name):
-    """Sirve la app web (PWA) que vive en /frontend. sw.js debe colgar de la raíz."""
-    return lambda request: serve(request, name, document_root=settings.BASE_DIR / "frontend")
+def front(name, *, built=False):
+    """Sirve el build de Vite y los recursos PWA que deben colgar de la raíz."""
+    root = settings.BASE_DIR / "frontend"
+    if built:
+        root /= "dist"
+    return lambda request: serve(request, name, document_root=root)
 
 
 urlpatterns = [
-    path("", front("index.html"), name="app"),
+    path("", front("index.html", built=True), name="app"),
     path("sw.js", front("sw.js"), name="sw"),
     path("manifest.json", front("manifest.json"), name="manifest"),
     path("admin/", admin.site.urls),
