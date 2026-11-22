@@ -3,6 +3,7 @@ import type { AppActions } from '../../app/types';
 import type { ApiList, Payroll } from '../../types';
 import { api, ApiError, isNetworkError } from '../../services/api';
 import { formatMoney, icon, localDate } from '../../app/utils';
+import { Skeletons } from '../../components/Skeletons';
 
 export function PayrollScreen({ state, toast }: AppActions) {
   const [records, setRecords] = useState<Payroll[]>([]);
@@ -42,7 +43,7 @@ export function PayrollScreen({ state, toast }: AppActions) {
       <button className="btn" onClick={() => void calculate()}>Calcular</button>
     </details>
     <section className="card"><div className="ph"><h2>Remuneraciones</h2><button className="btn sm sec" onClick={() => void exportCsv()}>{icon('download')} Exportar CSV</button></div>
-      {loading && !records.length && <small>Cargando…</small>}{error && <p role="alert">{error}</p>}
+      {loading && !records.length && <Skeletons count={3} />}{error && <p role="alert">{error}</p>}
       {records.map(record => <div className="li" key={record.id}><span>{state.cat.trabajadores.find(item => item.id === record.trabajador)?.nombre ?? 'Trabajador'}<br /><small>{record.periodo_inicio} → {record.periodo_fin}</small><br />
         {record.estado === 'BORRADOR' && <button className="btn sm" onClick={() => void transition(record, 'aprobar')}>Aprobar</button>}
         {record.estado === 'APROBADA' && <button className="btn sm" onClick={() => void transition(record, 'pagar')}>Marcar pagada</button>}

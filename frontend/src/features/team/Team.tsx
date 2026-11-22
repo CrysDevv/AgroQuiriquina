@@ -3,11 +3,24 @@ import type { AppActions } from '../../app/types';
 import type { Account, ApiList, Supplier, Worker } from '../../types';
 import { api, isNetworkError } from '../../services/api';
 import { CheckField, SelectField, TextField } from '../../components/FormFields';
+import { Skeletons } from '../../components/Skeletons';
 import { formatMoney, formatRut, icon, initials, validRut } from '../../app/utils';
 
 const teamEndpoints = { t: ['/trabajadores/', 'Trabajadores'], p: ['/proveedores/', 'Proveedores'], u: ['/usuarios/', 'Usuarios'] } as const;
 type TeamTab = keyof typeof teamEndpoints;
 type TeamRecord = Worker | Supplier | Account;
+
+const passwordError = (password: string) => {
+  const missing = [
+    [...password].length >= 8,
+    /\p{Lu}/u.test(password),
+    /\p{Ll}/u.test(password),
+    /\p{Nd}/u.test(password),
+    /[^\p{L}\p{N}]/u.test(password),
+  ];
+  return missing.every(Boolean) ? '' : 'La contraseña debe tener 8 caracteres como mínimo e incluir mayúscula, minúscula, número y símbolo.';
+};
+
 export function Team({ state, toast }: AppActions) {
   const isAdmin = state.me?.rol === 'ADMIN';
   const tabs: TeamTab[] = isAdmin ? ['t', 'p', 'u'] : ['t'];
@@ -67,7 +80,11 @@ export function Team({ state, toast }: AppActions) {
       else Object.assign(body, { rubro: field('rb').trim(), telefono: field('tl').trim(), condiciones_pago: field('cp').trim() });
     } else {
       if (!field('un').trim()) { toast('Falta el nombre de usuario', true); return; }
-      if (!editing && field('pw').length < 8) { toast('La contraseña debe tener al menos 8 caracteres', true); return; }
+      if (!editing && !field('pw')) { toast('Falta la contraseña', true); return; }
+      if (field('pw')) {
+        const error = passwordError(field('pw'));
+        if (error) { toast(error, true); return; }
+      }
       body = { username: field('un').trim(), first_name: field('fn').trim(), last_name: field('ln').trim(), rol: field('rl'), persona: field('ps') || null, is_active: !!fields.ac };
       if (field('pw')) body.password = field('pw');
     }
@@ -76,6 +93,13 @@ export function Team({ state, toast }: AppActions) {
       await api(path, { method: editing ? 'PATCH' : 'POST', body });
       toast('Guardado'); setOpen(false); setEditing(null); await load();
     } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo guardar', true); }
+  };
+  const unlock = async (account: Account) => {
+    try {
+      await api(`/usuarios/${account.id}/desbloquear/`, { method: 'POST' });
+      toast('Usuario desbloqueado');
+      await load();
+    } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo desbloquear el usuario', true); }
   };
   const personName = (record: TeamRecord) => tab === 'u' ? (record as Account).first_name || (record as Account).username : (record as Worker | Supplier).nombre;
   const formFields = tab === 't' ? <>
@@ -97,7 +121,8 @@ export function Team({ state, toast }: AppActions) {
     <TextField id="ln" label="Apellido" value={field('ln')} onChange={setField} />
     <SelectField id="rl" label="Rol" value={field('rl')} onChange={setField} options={[['ADMIN', 'Administrador'], ['VENDEDOR', 'Vendedor'], ['SUPERVISOR', 'Supervisor de Terreno']]} />
     <SelectField id="ps" label="Trabajador vinculado" value={field('ps')} onChange={setField} options={[['', '— Sin vincular —'], ...workers.map(worker => [worker.id, worker.nombre])]} />
-    <TextField id="pw" label={`Contraseña${editing ? ' (vacía = no cambiar)' : ' (mínimo 8 caracteres)'}`} type="password" value={field('pw')} onChange={setField} />
+    <TextField id="pw" label={`Contraseña${editing ? ' (vacía = no cambiar)' : ''}`} type="password" value={field('pw')} onChange={setField} />
+    <small>8 caracteres como mínimo: mayúscula, minúscula, número y símbolo.</small>
     <CheckField id="ac" label="Activo" checked={!!fields.ac} onChange={value => setField('ac', value)} />
   </>;
   return <>
@@ -107,9 +132,9 @@ export function Team({ state, toast }: AppActions) {
     <details className="card" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><b>{editing ? 'Editar' : 'Nuevo'} — {teamEndpoints[tab][1]}</b></summary>
       {formFields}<button className="btn" onClick={() => void save()}>{icon('check2-circle')} Guardar</button>{open && <button className="btn sec" onClick={() => { setOpen(false); setEditing(null); }}>Cancelar</button>}
     </details>
-    <section className="card"><h2>{teamEndpoints[tab][1]}</h2>{loading && !rows[tab].length && <small>Cargando…</small>}{error && <p role="alert">{error}</p>}
+    <section className="card"><h2>{teamEndpoints[tab][1]}</h2>{loading && !rows[tab].length && <Skeletons count={3} />}{error && <p role="alert">{error}</p>}
       {rows[tab].map(record => <div className="li" key={record.id}><span className="who"><i className="av">{initials(personName(record))}</i><span><b>{personName(record)}</b><br /><small>{tab === 't' ? `${(record as Worker).rut} · ${(record as Worker).cargo || 'Sin cargo'} · ${(record as Worker).tipo_contrato} · ${formatMoney((record as Worker).tarifa_diaria)}/día` : tab === 'p' ? `${(record as Supplier).rut} · ${(record as Supplier).rubro || 'Sin rubro'} ${(record as Supplier).telefono || ''}` : `${(record as Account).rol}`}</small></span></span>
-        <span className="form-actions">{((record as Worker).activo === false || (record as Account).is_active === false) && <span className="bd no">Inactivo</span>}<button className="btn sm sec" onClick={() => edit(record)}>Editar</button></span></div>)}
+        <span className="form-actions">{((record as Worker).activo === false || (record as Account).is_active === false) && <span className="bd no">Inactivo</span>}{tab === 'u' && (record as Account).bloqueado && <><span className="bd no">Bloqueado ({(record as Account).intentos_fallidos} intentos)</span><button className="btn sm sec" onClick={() => void unlock(record as Account)}>Desbloquear</button></>}<button className="btn sm sec" onClick={() => edit(record)}>Editar</button></span></div>)}
       {!loading && !error && !rows[tab].length && <small>Sin registros</small>}
     </section>
   </>;

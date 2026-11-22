@@ -14,7 +14,7 @@ export interface QueuedSale { id: string; cliente: string; fecha: string; device
 export interface WorkLog { id: string; trabajador: string; fecha: string; labor: string; cantidad: string; unidad: string; device_id: string; tarifa_unitaria?: string }
 export interface HistoryItem { id: string; n: string; l: string; c: string; u: string; f: string }
 export interface Supplier { id: string; rut: string; nombre: string; rubro?: string; telefono?: string; condiciones_pago?: string }
-export interface Account { id: string; username: string; first_name: string; last_name: string; rol: Role; persona?: string | null; is_active: boolean }
+export interface Account { id: string; username: string; first_name: string; last_name: string; rol: Role; persona?: string | null; is_active: boolean; intentos_fallidos: number; bloqueado: boolean }
 export interface Payroll { id: string; trabajador: string; periodo_inicio: string; periodo_fin: string; total_liquido: number; estado: string }
 export interface Movement { id: string; item: string; created_at: string; motivo?: string; tipo: string; cantidad: number }
 export interface AppState {

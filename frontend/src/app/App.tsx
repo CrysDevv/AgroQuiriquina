@@ -16,6 +16,8 @@ interface ToastMessage { id: number; text: string; error?: boolean }
 export function App() {
   const [state, setState] = useState<AppState>(initialState);
   const [toastValue, setToastValue] = useState<ToastMessage | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreDialog = useRef<HTMLDialogElement>(null);
   const route = useHashRoute();
   const [theme, setTheme] = useState<ThemeName>(() => read('theme', 'field'));
   const [mode, setMode] = useState<ThemeMode>(() => read('themeMode', 'system'));
@@ -121,7 +123,11 @@ export function App() {
   }} />;
   const role = state.me.rol;
   const routeId: ScreenName = route.screen === 'venta' || route.screen === 'nueva-venta' ? 'ventas' : route.screen;
-  const selectedMenu = menu.find(item => item.id === routeId);
+  const availableMenu = menu.filter(item => !item.roles || item.roles.includes(role));
+  const selectedMenu = availableMenu.find(item => item.id === routeId);
+  const primaryIds: ScreenName[] = ['inicio', 'ventas', 'inventario', 'clientes', 'terreno', 'despachos', 'equipo', 'finanzas', 'nomina'];
+  const mobilePrimary = primaryIds.map(id => availableMenu.find(item => item.id === id)).filter(item => item !== undefined).slice(0, 4);
+  const mobileMore = availableMenu.filter(item => !mobilePrimary.includes(item));
   if (route.screen !== 'inicio' && (!selectedMenu || (selectedMenu.roles && !selectedMenu.roles.includes(role)))) {
     location.hash = '#/inicio';
     return null;
@@ -131,10 +137,22 @@ export function App() {
     <div className="shell">
       <aside className="side">
         <div className="brand"><img src="/static/icons/logo.png" alt="" style={{ height: 28, verticalAlign: 'middle' }} /> AgroQuiriquina</div>
-        <nav aria-label="Navegación principal">{menu.filter(item => !item.roles || item.roles.includes(role)).map(item =>
+        <nav className="desktop-nav" aria-label="Navegación principal">{availableMenu.map(item =>
           <a key={item.id} href={`#/${item.id}`} className={routeId === item.id ? 'on' : ''} aria-current={routeId === item.id ? 'page' : undefined}>
             <b>{icon(item.icon)}</b><span>{item.label}</span>
           </a>)}</nav>
+        <nav className="mobile-nav" aria-label="Navegación principal">
+          {mobilePrimary.map(item =>
+            <a key={item.id} href={`#/${item.id}`} className={routeId === item.id ? 'on' : ''} aria-current={routeId === item.id ? 'page' : undefined}>
+              <b>{icon(item.icon)}</b><span>{item.label}</span>
+            </a>)}
+          {!!mobileMore.length && <button type="button" className={mobileMore.some(item => item.id === routeId) ? 'on' : ''} aria-haspopup="dialog" aria-expanded={moreOpen} onClick={() => {
+            setMoreOpen(true);
+            if (moreDialog.current && !moreDialog.current.open) moreDialog.current.showModal();
+          }}>
+            <b>{icon('three-dots')}</b><span>Más</span>
+          </button>}
+        </nav>
       </aside>
       <div className="cont">
         <header className="top">
@@ -160,6 +178,18 @@ export function App() {
         </main>
       </div>
     </div>
+    <dialog ref={moreDialog} className="mobile-more-dialog" aria-labelledby="more-title" onClose={() => setMoreOpen(false)} onCancel={() => setMoreOpen(false)} onClick={event => {
+      if (event.target === event.currentTarget) moreDialog.current?.close();
+    }}>
+      <div className="mobile-more-heading">
+        <h2 id="more-title">Más secciones</h2>
+        <button type="button" className="icon-button" aria-label="Cerrar menú" autoFocus onClick={() => moreDialog.current?.close()}>{icon('x-lg')}</button>
+      </div>
+      <nav aria-label="Más secciones">{mobileMore.map(item =>
+        <a key={item.id} href={`#/${item.id}`} className={routeId === item.id ? 'on' : ''} aria-current={routeId === item.id ? 'page' : undefined} onClick={() => moreDialog.current?.close()}>
+          <b>{icon(item.icon)}</b><span>{item.label}</span>
+        </a>)}</nav>
+    </dialog>
     <div id="toast" role="status" aria-live="polite" style={{ display: toastValue ? 'block' : 'none' }}>
       {toastValue && <>{icon(toastValue.error ? 'exclamation-triangle' : 'check-circle')} {toastValue.text}</>}
     </div>

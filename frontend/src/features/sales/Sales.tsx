@@ -5,14 +5,17 @@ import { api } from '../../services/api';
 import { deviceId, uuid } from '../../services/storage';
 import { formatDate, formatMoney, icon, sumSale, localDate } from '../../app/utils';
 import { SaleHeaders, SaleRow } from '../dashboard/Dashboard';
+import { Skeletons } from '../../components/Skeletons';
 
 export function Sales({ state, update }: AppActions) {
   const [filter, setFilter] = useState('todas');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(state.online && !state.busy && !state.ventas.length && !state.q.ventas.length);
   useEffect(() => {
     if (!state.online || state.busy) return;
+    if (!state.ventas.length && !state.q.ventas.length) setLoading(true);
     const timer = window.setTimeout(() => {
-      void api<ApiList<Sale>>('/ventas/?limit=40').then(result => update(draft => { draft.ventas = result.results; })).catch(() => undefined);
+      void api<ApiList<Sale>>('/ventas/?limit=40').then(result => update(draft => { draft.ventas = result.results; })).catch(() => undefined).finally(() => setLoading(false));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -30,8 +33,10 @@ export function Sales({ state, update }: AppActions) {
       <button key={key} className={`chip ${filter === key ? 'on' : ''}`} onClick={() => setFilter(key)}>{label}</button>)}</div>
     <label htmlFor="sale-search" className="visually-hidden">Buscar por cliente</label>
     <input id="sale-search" placeholder="Buscar por cliente" value={search} onChange={event => setSearch(event.target.value)} style={{ marginBottom: 12 }} />
-    <SaleHeaders />{sales.map(sale => <SaleRow key={sale.id} sale={sale} />)}
-    {!sales.length && <p><small>No hay ventas con este filtro.</small></p>}
+    {loading && !state.ventas.length && !state.q.ventas.length ? <Skeletons count={3} /> : <>
+      <SaleHeaders />{sales.map(sale => <SaleRow key={sale.id} sale={sale} />)}
+      {!sales.length && <p><small>No hay ventas con este filtro.</small></p>}
+    </>}
   </section>;
 }
 
@@ -101,8 +106,9 @@ export function NewSale({ state, update, toast, sync }: AppActions) {
 }
 
 export function SaleDetail({ state, update, toast, refreshInventory, id }: AppActions & { id: string }) {
-  const [sale, setSale] = useState<Sale | QueuedSale | null>(state.q.ventas.find(item => item.id === id) ?? state.ventas.find(item => item.id === id) ?? null);
-  const [loading, setLoading] = useState(false);
+  const cachedSale = state.q.ventas.find(item => item.id === id) ?? state.ventas.find(item => item.id === id) ?? null;
+  const [sale, setSale] = useState<Sale | QueuedSale | null>(cachedSale);
+  const [loading, setLoading] = useState(!cachedSale && !!id && state.online);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('EFECTIVO');
   useEffect(() => {
@@ -119,7 +125,7 @@ export function SaleDetail({ state, update, toast, refreshInventory, id }: AppAc
   }, [id]);
   const isQueued = !!state.q.ventas.some(item => item.id === id);
   const detail = sale as Sale | null;
-  if (loading && !sale) return <section className="card">Cargando…</section>;
+  if (loading && !sale) return <Skeletons variant="detail" count={3} />;
   if (!sale) return <section className="card"><a className="btn sm sec" href="#/ventas">Volver</a><p>{state.online ? 'No se encontró la venta.' : 'Esta pantalla necesita conexión a internet.'}</p></section>;
   const clientName = state.cat.clientes.find(client => client.id === sale.cliente)?.nombre ?? 'Cliente';
   const productName = (productId: string) => state.cat.productos.find(product => product.id === productId)?.nombre ?? 'Producto';

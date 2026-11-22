@@ -12,7 +12,7 @@ export function Login({ onLogin }: { onLogin: (token: Token, user: User) => void
     event.preventDefault(); setLoading(true); setMessage('');
     try {
       const response = await fetch('/api/v1/auth/token/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username.trim(), password }) });
-      if (!response.ok) throw new Error(response.status === 401 ? 'Usuario o clave incorrectos' : `Error ${response.status}`);
+      if (!response.ok) throw new Error(response.status === 423 ? 'Cuenta bloqueada. Contacta a un administrador para desbloquearla.' : response.status === 401 ? 'Usuario o clave incorrectos' : `Error ${response.status}`);
       const token = await response.json() as Token;
       configureApi(token);
       const user = await api<User>('/me/');
