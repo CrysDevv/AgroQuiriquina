@@ -93,6 +93,14 @@ python manage.py seed_demo --password "UnaClaveLocalSegura"
 
 El comando solo cambia las credenciales de las cuentas que crea o cuando se utiliza `--reset`. **Las cuentas y contraseñas demo son exclusivamente para desarrollo:** no las habilite en producción.
 
+Al actualizar una instalación existente, aplique también las migraciones nuevas:
+
+```bash
+python manage.py migrate
+```
+
+En Docker, ejecute `docker compose exec web python manage.py migrate`.
+
 ### Explorar la aplicación con cuentas demo
 
 Las cuentas de demostración usan `Cambiar123!` como contraseña inicial. Inicie sesión localmente con el perfil que corresponda:
@@ -172,6 +180,27 @@ La API tiene prefijo `/api/v1/`. Los recursos requieren autenticación salvo que
 | Sincronización | `POST /sync/ventas/bulk/`, `POST /sync/clientes/bulk/`, `POST /sync/desempenos/bulk/`, `GET /sync/catalogo/` |
 
 En la raíz del proyecto, `api_examples.http` contiene peticiones para probar con la extensión REST Client de VS Code. La documentación interactiva OpenAPI está en `/api/docs/` y el esquema en `/api/schema/`; en desarrollo está habilitada para consulta, mientras que en producción requiere un usuario administrador del sitio.
+
+### Autenticación y contraseñas
+
+El inicio de sesión de la aplicación es propio: `POST /api/v1/auth/token/` recibe `username` y `password` y devuelve los tokens JWT `access` y `refresh`. Las claves se derivan con PBKDF2-HMAC-SHA256 (`hashlib`), salt aleatorio y comparación segura; el backend conserva compatibilidad con las claves PBKDF2 ya guardadas. Los tokens se firman con la clave secreta configurada para Django. La renovación se realiza con `POST /api/v1/auth/token/refresh/`.
+
+Las contraseñas nuevas o modificadas deben cumplir todas estas reglas, tanto en el formulario de usuarios como en la API:
+
+- 8 caracteres como mínimo.
+- Al menos una letra mayúscula y una minúscula.
+- Al menos un número y un símbolo.
+
+Tres intentos de inicio de sesión consecutivos con contraseña incorrecta bloquean la cuenta. Un inicio de sesión correcto reinicia el contador. Una cuenta bloqueada no puede iniciar sesión, usar sus tokens existentes ni renovarlos hasta que un usuario con rol ADMIN la desbloquee. El login responde con HTTP `423` y un mensaje que indica que debe contactar a un administrador.
+
+Para desbloquear una cuenta desde la aplicación, vaya a **Equipo > Usuarios** y pulse **Desbloquear** en la fila correspondiente. La acción también está disponible para administradores mediante:
+
+```http
+POST /api/v1/usuarios/{id}/desbloquear/
+Authorization: Bearer <token-de-administrador>
+```
+
+El desbloqueo restablece el contador de intentos fallidos a cero. La ruta de usuarios y la acción de desbloqueo requieren permisos ADMIN.
 
 Las rutas de sincronización aceptan una lista JSON o un objeto con la clave del recurso, con un máximo de 500 registros. La respuesta incluye el resultado individual de cada elemento: `created`, `duplicate` o `error`. Si hay errores parciales, la API responde `207 Multi-Status`; los elementos correctos no requieren reenviar todo el lote.
 
