@@ -43,6 +43,54 @@ class UsuariosDemoTests(APITestCase):
     def test_clave_incorrecta(self):
         self.assertEqual(self._login("admin", "otra-clave").status_code, 401)
 
+    def test_tres_fallos_bloquean_hasta_desbloqueo_de_admin(self):
+        vendedor = User.objects.get(username="vendedor1")
+        login = self._login("vendedor1")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+        for attempt in range(2):
+            response = self._login("vendedor1", "clave-incorrecta")
+            self.assertEqual(response.status_code, 401, attempt)
+        response = self._login("vendedor1", "clave-incorrecta")
+        self.assertEqual(response.status_code, 423)
+        self.assertIn("bloqueada", response.data["detail"])
+        vendedor.refresh_from_db()
+        self.assertTrue(vendedor.bloqueado)
+        self.assertEqual(vendedor.intentos_fallidos, 3)
+
+        self.assertEqual(self.client.get("/api/v1/me/").status_code, 401)
+        response = self.client.post(
+            "/api/v1/auth/token/refresh/",
+            {"refresh": login.data["refresh"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 401)
+
+        self._auth("vendedor2")
+        self.assertEqual(
+            self.client.post(f"/api/v1/usuarios/{vendedor.pk}/desbloquear/").status_code,
+            403,
+        )
+        self._auth("admin")
+        response = self.client.post(f"/api/v1/usuarios/{vendedor.pk}/desbloquear/")
+        self.assertEqual(response.status_code, 200, response.data)
+        vendedor.refresh_from_db()
+        self.assertFalse(vendedor.bloqueado)
+        self.assertEqual(vendedor.intentos_fallidos, 0)
+        self.assertEqual(self._login("vendedor1").status_code, 200)
+
+    def test_serializer_exige_clave_con_complejidad_y_guarda_hash_pbkdf2(self):
+        self._auth("admin")
+        payload = {"username": "usuario_nuevo", "password": "invalida1!"}
+        response = self.client.post("/api/v1/usuarios/", payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+        payload["password"] = "Valida123!"
+        response = self.client.post("/api/v1/usuarios/", payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        user = User.objects.get(username="usuario_nuevo")
+        self.assertTrue(user.password.startswith("pbkdf2_sha256$"))
+        self.assertTrue(user.check_password("Valida123!"))
+
     def test_supervisores_estan_vinculados_a_trabajador(self):
         sup = User.objects.get(username="supervisor1")
         self.assertTrue(Trabajador.objects.filter(pk=sup.persona_id).exists())
