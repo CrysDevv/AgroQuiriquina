@@ -1,8 +1,12 @@
+import secrets
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 from apps.core.models import SyncModel
 from apps.core.validators import normalizar_rut, validar_rut
+
+from .passwords import hash_password, verify_password
 
 
 class Rol(models.TextChoices):
@@ -14,10 +18,24 @@ class Rol(models.TextChoices):
 class User(AbstractUser):
     """Usuario del sistema (login). RBAC mediante `rol`."""
     rol = models.CharField(max_length=15, choices=Rol.choices, default=Rol.VENDEDOR)
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0)
+    bloqueado = models.BooleanField(default=False)
     persona = models.OneToOneField(
         "users.Persona", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="usuario",
     )
+
+    def set_password(self, raw_password):
+        if raw_password is None:
+            self.set_unusable_password()
+        else:
+            self.password = hash_password(raw_password)
+
+    def set_unusable_password(self):
+        self.password = f"!{secrets.token_urlsafe(40)}"
+
+    def check_password(self, raw_password):
+        return raw_password is not None and verify_password(raw_password, self.password)
 
     @property
     def es_admin(self):

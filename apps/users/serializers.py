@@ -3,6 +3,17 @@ from rest_framework import serializers
 from apps.core.validators import normalizar_rut
 
 from .models import Cliente, Persona, Proveedor, Trabajador, User
+from .passwords import password_validation_error
+
+
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
+class LoginTokenSerializer(serializers.Serializer):
+    access = serializers.CharField()
+    refresh = serializers.CharField()
 
 
 class PersonaBaseSerializer(serializers.ModelSerializer):
@@ -42,12 +53,20 @@ class TrabajadorSerializer(PersonaBaseSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=False, min_length=8)
+    password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
         fields = ["id", "username", "first_name", "last_name", "email",
-                  "rol", "persona", "is_active", "password"]
+                  "rol", "persona", "is_active", "password",
+                  "intentos_fallidos", "bloqueado"]
+        read_only_fields = ["intentos_fallidos", "bloqueado"]
+
+    def validate_password(self, value):
+        error = password_validation_error(value)
+        if error:
+            raise serializers.ValidationError(error)
+        return value
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)

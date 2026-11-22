@@ -10,4 +10,6 @@ router.register("proveedores", ProveedorViewSet, basename="proveedor")
 router.register("trabajadores", TrabajadorViewSet, basename="trabajador")
 router.register("usuarios", UserViewSet, basename="usuario")
 
-urlpatterns = [path("me/", MeView.as_view(), name="me")] + router.urls
+urlpatterns = [
+    path("me/", MeView.as_view(), name="me"),
+] + router.urls
